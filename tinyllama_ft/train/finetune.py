@@ -30,7 +30,7 @@ from transformers.trainer_pt_utils import LabelSmoother
 from transformers import get_cosine_schedule_with_warmup, AutoTokenizer, LlamaForCausalLM
 
 from tinyllama_ft import conversation as conversation_lib
-from tinyllama_ft.constants import IGNORE_INDEX
+from tinyllama_ft.constants import *
 
 
 
@@ -163,6 +163,12 @@ def rank0_write(*args):
 
 def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: str):
     """Collects the state dict and dump to disk."""
+    
+    if trainer.deepspeed:
+        torch.cuda.synchronize()
+        trainer.save_model(output_dir)
+        return
+    
     state_dict = trainer.model.state_dict()
     if trainer.args.should_save:
         cpu_state_dict = {key: value.cpu() for key, value in state_dict.items()}
@@ -335,11 +341,11 @@ class DataCollatorForSupervisedDataset(object):
         return batch
 
 def make_supervised_data_module(
-    processor, data_args
+    tokenizer, data_args
 ) -> Dict:
     """Make dataset and collator for supervised fine-tuning."""
-    train_dataset = LazySupervisedDataset(processor=processor, data_path=data_args.data_path, num_data=data_args.num_data)
-    data_collator = DataCollatorForSupervisedDataset(processor=processor)
+    train_dataset = LazySupervisedDataset(tokenizer=tokenizer, data_path=data_args.data_path, data_args=data_args)
+    data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset,
                 eval_dataset=None,
                 data_collator=data_collator)
@@ -421,6 +427,16 @@ def train(attn_implementation=None):
             use_fast=False,
         )
     tokenizer.pad_token = tokenizer.unk_token
+
+    num_new_tokens = tokenizer.add_tokens([DEFAULT_COARSE_REFERENCE_START_TOKEN,
+                                           DEFAULT_COARSE_REFERENCE_END_TOKEN,
+                                           DEFAULT_REFERENCE_START_TOKEN,
+                                           DEFAULT_REFERENCE_END_TOKEN,
+                                           DEFAULT_INSTANCE_START_TOKEN,
+                                           DEFAULT_INSTANCE_END_TOKEN,
+                                           DEFAULT_ANCHORS_START_TOKEN,
+                                           DEFAULT_ANCHORS_END_TOKEN], special_tokens=True)
+    model.resize_token_embeddings(len(tokenizer))
     
     if training_args.bits in [4, 8]:
         from peft.tuners.lora import LoraLayer
@@ -460,10 +476,11 @@ def train(attn_implementation=None):
             model.config.save_pretrained(training_args.output_dir)
             model.save_pretrained(training_args.output_dir, state_dict=state_dict)
             torch.save(non_lora_state_dict, os.path.join(training_args.output_dir, 'non_lora_trainables.bin'))
+            tokenizer.save_pretrained(training_args.output_dir)
     else:
         safe_save_model_for_hf_trainer(trainer=trainer,
                                        output_dir=training_args.output_dir)
-    
+        tokenizer.save_pretrained(training_args.output_dir)
     # safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
 
 

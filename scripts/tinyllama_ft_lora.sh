@@ -3,17 +3,18 @@ export WANDB_MODE=offline
 
 python -m torch.distributed.run --nproc_per_node=7 \
          tinyllama_ft/train/finetune.py \
+        --lora_enable True --lora_r 128 --lora_alpha 256 \
         --data_path data/sr3d_84k.json \
         --model_name_or_path ckpts/TinyLlama-1.1B-Chat-v1.0 \
         --bf16 \
-        --output_dir checkpoints/tinyllama_ft \
-        --max_steps 100    \
+        --output_dir checkpoints/tinyllama_ft_lora \
+        --max_steps 2000    \
         --per_device_train_batch_size 8 \
         --per_device_eval_batch_size 1  \
         --gradient_accumulation_steps 2 \
         --evaluation_strategy no \
         --save_strategy steps \
-        --save_steps 100  \
+        --save_steps 2000  \
         --save_total_limit 2 \
         --learning_rate 2e-5 \
         --weight_decay 0.  \
