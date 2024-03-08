@@ -213,6 +213,8 @@ def preprocess_llama_2(
             assert role == conv.roles[j % 2], f"{i}"
             conv.append_message(role, sentence["value"])
         conversations.append(conv.get_prompt())
+        
+    print(conversations)
 
     # Tokenize conversations
 
